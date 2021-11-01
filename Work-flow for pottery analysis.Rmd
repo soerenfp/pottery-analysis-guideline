@@ -1,0 +1,441 @@
+---
+title: "Guideline for pottery analysis"
+author: "Soren Pedersen"
+date: "11/1/2021"
+output: html_document
+---
+---------------
+####Prepare####
+---------------
+
+### Load Data
+```{r}
+#Substitute with own data!
+load("KEN2020clean.RData")
+```
+### Load Libraries and install if necessary)
+```{r}
+# ipak function: install and load multiple R packages.
+# https://gist.github.com/stevenworthington/3178163
+# check to see if packages are installed. Install them if they are not, then load them into the R session.
+
+ipak <- function(pkg){
+new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+if (length(new.pkg)) 
+    install.packages(new.pkg, dependencies = TRUE)
+sapply(pkg, require, character.only = TRUE)
+}
+
+# usage
+packages <- c("ggplot2", "tidyverse", "DescTools", "WVPlots", "Hmisc", "treemapify", "scales", "ggbeeswarm")
+ipak(packages)
+```
+
+------------------------------
+####Descriptive statistics####
+------------------------------
+
+We will run all the descriptives. Save these straight into a word file if you are running windows.
+```{r}
+desc.rims <- Desc(rims)
+```
+
+#How many sherds from each site
+How many rim shards was registered from each site
+```{r}
+Desc(rims$Site)
+```
+
+Let's do the same with the body shards
+```{r}
+count_bodyshards <- table(body$Site, body$`No. Of sherds`)
+```
+...and another method (I think)
+```{r}
+Desc(body$Site, body$`No. Of sherds`)
+```
+
+#Temper
+Which type of temper is dominant at the sites
+```{r}
+Desc(rims$Temper)
+```
+
+#Temper by site
+```{r}
+library(scales)
+ggplot(rims, 
+       aes(x = factor(Site,
+                      levels = c("KEN1", "KEN3","KEN4", "KEN5", 
+                                 "KEN6", "KEN7", "KEN8", "KEN9", "KEN10", 
+                                 "KEN11", "KEN12")),
+           fill = factor(rims$Temper, 
+                         levels = c("?", "21", "31", "32", "32c", "33", "34", "35"),
+                         labels = c("unknown", "sand only", "grog only", "grog with coarse sand", "grog with coarse sand (big fragments)", "grog with shell/bone", "grog with coarse sand and laterite", "grog with laterite")))) + 
+  geom_bar(position = "fill") +
+  scale_y_continuous(breaks = seq(0, 1, .2), 
+                     label = percent) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(y = "Percent", 
+       fill = "Temper Category",
+       x = "Site",
+       title = "Temper Categories by Site") +
+  theme_minimal()
+```
+
+#Slip
+Which type of slip is dominant at our sites and on which location
+```{r}
+Desc(rims$Slip)
+```
+
+#Burnish
+Which area is burnished
+```{r}
+Desc(rims$Burnish)
+```
+
+#Slip and burnish
+When does slip and burnish occur together and on which parts?
+```{r}
+#Simple plot
+plot(rims$Slip, rims$Burnish)
+```
+...Don't know whats happening below
+```{r}
+burnishXslip <- rims %>% 
+  group_by(Burnish, Slip) %>% 
+  summarise(n=n()) %>% 
+  spread(Slip, n) %>% 
+  as.data.frame()
+
+burnishXslip$Burnish <- as.character(burnishXslip$Burnish)
+
+burnishXslip <- burnishXslip%>% 
+  replace(is.na(.), 0) %>% 
+  as.data.frame() %>% 
+  column_to_rownames("Burnish")
+```
+
+#Decoration
+Which type of decoration is dominant at the sites?
+
+Motif 1
+```{r}
+Desc(rims$Motif1)
+```
+
+Motif 2
+```{r}
+Desc(rims$Motif2)
+```
+
+Motif 3
+```{r}
+Desc(rims$Motif3)
+```
+
+Motif 4
+```{r}
+Desc(rims$Motif4)
+```
+
+Continue with these commands if there are more motifs
+
+Lets continue with the body sherds
+```{r}
+Desc(body$`Motif 1`, valueLabel(body$`No. Of sherds`))
+```
+
+#Combine the Motif1-4 categories (frist rims, then body shards)
+We start by combining the motif1-4 columns into one column of the rims sheet
+```{r}
+Motif1_rim <- rims %>% select(Site, Context, Motif1, Loc1) %>% rename (Motif = Motif1, Loc = Loc1)
+Motif2_rim <- rims %>% select(Site, Context, Motif2, Loc2) %>% rename (Motif = Motif2, Loc = Loc2)
+Motif3_rim <- rims %>% select(Site, Context, Motif3, Loc3) %>% rename (Motif = Motif3, Loc = Loc3)
+Motif4_rim <- rims %>% select(Site, Context, Motif4, Loc4) %>% rename (Motif = Motif4, Loc = Loc4)
+
+Motifs_rim <- bind_rows(Motif1_rim, Motif2_rim, Motif3_rim, Motif4_rim) %>% na.omit()
+
+#Then try to plot them
+
+count(Motifs_rim, Motif) %>% plot()
+
+#Total rim count
+rimcount <- count(Motifs_rim, Motif)
+
+#Plot the rims
+
+Motifs_rim %>%
+  filter(!Motif %in% c("EROD", "PLAIN")) %>% 
+  group_by(Motif) %>%
+  summarise(n = n())%>%
+  mutate(perc = (n/411)*100)%>% 
+  filter(perc > 3) %>%
+  ggplot(aes(x = Motif, y= perc))+
+  geom_bar(stat = "identity")+
+  labs(title = "Decorative motifs (rims) on KEN 2020 pottery",
+       subtitle = "above 3% prevalence",
+       x = "Motif",
+       y = "%", 
+       caption = "n = 411")+
+  theme_minimal()
+
+Desc(Motifs_rim$Motif)
+```
+
+Then we combine motif1-4 from the body shard sheet
+```{r}
+Motif1_body <- body %>% select("Site", "Unit", "Context", "Motif 1", "No. Of sherds") %>% rename (Motif = "Motif 1")
+Motif2_body <- body %>% select("Site", "Unit", "Context", "Motif 2", "No. Of sherds") %>% rename (Motif = "Motif 2")
+Motif3_body <- body %>% select("Site", "Unit", "Context", "Motif 3", "No. Of sherds") %>% rename (Motif = "Motif 3")
+Motif4_body <- body %>% select("Site", "Unit", "Context", "Motif 4", "No. Of sherds") %>% rename (Motif = "Motif 4")
+
+Motifs_body <- bind_rows(Motif1_body, Motif2_body, Motif3_body, Motif4_body) %>% na.omit()
+
+#Then try to plot them
+
+Desc(Motifs_body$Motif)
+
+Motifs_body <- Motifs_body %>% rename(no = `No. Of sherds`)
+
+#Total body count
+bodycount <- Motifs_body %>% group_by(Motif) %>% tally(no)
+
+Motifs_body %>%
+  filter(!Motif %in% c("EROD", "PLAIN")) %>% 
+  group_by(Motif) %>%
+  summarise(n = n())%>%
+  mutate(perc = (n/611)*100)%>% 
+  filter(perc > 3) %>%
+  ggplot(aes(x = Motif, y= perc))+
+  geom_bar(stat = "identity")+
+  labs(title = "Decorative motifs (body) on KEN 2020 pottery",
+       subtitle = "above 3% prevalence",
+       x = "Motif",
+       y = "%", 
+       caption = "n = 2599")+
+  theme_minimal()
+
+#Total amount of rim+body shards
+sum(body$`No. Of sherds`)
+2599+411
+
+#Then we combine the rimcount and bodycount
+
+motifs_all <- bind_rows(rimcount, bodycount) %>% group_by(Motif) %>% tally(n)
+
+#And plot the motifs_all
+
+motifs_all %>%
+  filter(!Motif %in% c("EROD", "PLAIN")) %>% 
+  mutate(perc= (n/3010)*100) %>%
+  filter(perc > 2) %>% 
+  ggplot(aes(x = Motif, y= perc))+
+  geom_bar(stat = "identity")+
+  labs(title = "Decorative motifs on KEN 2020 pottery",
+       subtitle = "above 2% prevalence",
+       x = "Motif",
+       y = "%", 
+       caption = "n = 3010")+
+  theme_minimal()
+
+```
+
+#Diameter
+Which opening diameter is preferred?
+```{r}
+Desc(rims$Diameter)
+```
+
+#Average thickness
+Which minimum thickness is dominant?
+```{r}
+Desc(rims$MinTh)
+```
+
+And the max neck thickness
+```{r}
+Desc(rims$MaxTh)
+```
+
+#Mean
+Calculate the average mean of opening diameter and minimum thickness
+```{r}
+mean(rims$Diameter, trim = 0, na.rm = TRUE)
+```
+
+-------------------------
+####Numeric variables####
+-------------------------
+
+NOTE: In this part I include the comments because they will be a vital part of interpreting the results. They will be in "" marks.
+
+"We only have three of these, which pertain to the sizes of the vessels: Max Thickness, Min Thickness and Diameter. Since we have individual descriptives, we will now see how they relate to each other and plot this."
+
+# Max to Min Thickness
+
+Gives the relationship of rim to body thickness and tests for correlation.
+```{r}
+minXmax <- ggplot(data = rims,
+                   mapping = aes(x = MinTh,
+                                 y = MaxTh))  
+minXmax2 <- minXmax +  geom_point(alpha = .7,
+                       color = "cornflowerblue") +  #will have to see how to use colours, but this can also be changed via themes
+  scale_x_continuous(labels = scales::label_number(suffix = "cm"))+
+  scale_y_continuous(breaks = seq(0, 40, 20),
+                     label = scales::label_number(suffix = "mm")) + theme_minimal()
+
+minXmaxfull <- minXmax2 +
+  stat_summary(fun.data= mean_cl_normal) + 
+  geom_smooth(method='lm') +
+  labs(title = "Relationship between minimum vessel thickness and maximum rim thickness ",
+       subtitle = "all Kéniéroba sites",
+       #caption = "2017 Excavations",      #the caption is just an example
+       x = "Minimum Thickness",
+       y = "Maximum Thickness") 
+             
+minXmaxfull + theme_minimal()
+```
+
+"The regression line is not totally flat, but because of the way the plot is organised, we can't really trust it."
+
+"we can try to do the same with the WVPLots perfect scatterplot, but it might be overkill. It is worth doing this maybe when there is a correlation that we want to show, but not when there isn't."
+```{r}
+WVPlots::ScatterHist(rims, "MinTh", "MaxTh",
+  title= "Relationship of Minimum Vessel Thickness to Maximum Rim Thickness",
+  smoothmethod = "lm",
+  estimate_sig = TRUE,
+  contour = TRUE,
+  point_color = "#006d2c", # dark green
+  hist_color = "#6baed6", # medium blue
+  smoothing_color = "#54278f", # dark purple
+  density_color = "#08519c", # darker blue
+  contour_color = "#9e9ac8") # lighter purple
+```
+
+"This does show us two areas of particular density in the pairings, which has mainly to do with minor peaks in the maxThickness values. The relatively steep regression line also suggests that the values are correlated." 
+
+"In order to not rely on the visual regression line which can be misleading, we will go through the statistical motions here, testing Minimum Thickness against Diameter. The usual method is a Pearson correlation test (Pearson's r), which works on t-tests and thus on the mean values. This goes from 1 (total positive correlation) to -1 (total negative correlation) via 0 (no correlation)."
+```{r}
+cor.test(rims$MinTh, rims$MaxTh,  method = "pearson", use = "complete.obs")
+```
+"t is the t-test value, here 8.7, df are degrees of freedom (157), and the p-value is the significance level of the t-test (2.458^{-15}). This last value tells us that if the two samples were not correlated (0), we would get the effect present in our data only in an extremely small number of cases.
+Thus we can say that there is a correlation between the two values. cor, the correlation coefficient tells us that they are significantly positively correlated with a value of 0.6, which is a bit more than half-way between not correlated and fully correlated."
+
+# Max Thickness to Diameter
+
+Is the diameter of the opening related to the rim thickness?
+```{r}
+diamXmax <- ggplot(data = rims,
+                   mapping = aes(x = Diameter,
+                                 y = MaxTh))  
+diamXmax2 <- diamXmax +  geom_point(alpha = .7,
+                       color = "cornflowerblue") +
+  scale_x_continuous(labels = scales::label_number(suffix = "cm"))+
+  scale_y_continuous(breaks = seq(0, 40, 20),
+                     label = scales::label_number(suffix = "mm")) + theme_minimal()
+
+diamXmaxfull <- diamXmax2 +
+  stat_summary(fun.data= mean_cl_normal) + 
+  geom_smooth(method='lm', color="red") +
+  labs(title = "Relationship between opening diameter and maximum thickness ",
+       subtitle = "all Kéniéroba sites",
+       #caption = "2017 Excavations",
+       x = "Diameter",
+       y = "Maximum Thickness") 
+             
+diamXmaxfull + theme_minimal()
+```
+
+VWplots
+```{r}
+WVPlots::ScatterHist(rims, "MaxTh", "Diameter",
+  title= "Relationship of Maximum Vessel Thickness to Diameter",
+  smoothmethod = "lm",
+  estimate_sig = TRUE,
+  contour = TRUE,
+  point_color = "#006d2c", # dark green
+  hist_color = "#6baed6", # medium blue
+  smoothing_color = "#54278f", # dark purple
+  density_color = "#08519c", # darker blue
+  contour_color = "#9e9ac8") # lighter purple
+```
+
+"This shows us that there is a correlation as the Pearson's R also will show us."
+
+And Pearson's r:
+```{r}
+cor.test(rims$MaxTh, rims$Diameter,  method = "pearson", use = "complete.obs")
+```
+"The result is again a singificant correlation, but somewhat weaker than the thickness values to each other."
+
+# Min Thickness to Diameter
+
+Is the diameter of the opening related to the body thickness?
+```{r}
+diamXmin <- ggplot(data = rims,
+                   mapping = aes(x = Diameter,
+                                 y = MaxTh))  
+diamXmin2 <- diamXmin +  geom_point(alpha = .7,
+                       color = "cornflowerblue") +
+  scale_x_continuous(labels = scales::label_number(suffix = "cm"))+
+  scale_y_continuous(breaks = seq(0, 40, 20),
+                     label = scales::label_number(suffix = "mm")) + theme_minimal()
+
+diamXminfull <- diamXmin2 +
+  stat_summary(fun.data= mean_cl_normal) + #remove these lines if
+  geom_smooth(method='lm') +               #you don't want the regression line
+  labs(title = "Relationship between Minimum Vessel Thickness and Opening Diameter",
+       subtitle = "all Kéniéroba sites",
+       #caption = "2017 Excavations",
+       x = "Minimum Thickness",
+       y = "Maximum Thickness") 
+             
+diamXminfull + theme_minimal()
+```
+
+VWplots
+```{r}
+WVPlots::ScatterHist(rims, "MinTh", "Diameter",
+  title= "Relationship of Minimum Vessel Thickness to Diameter",
+  smoothmethod = "lm",
+  estimate_sig = TRUE,
+  contour = TRUE,
+  point_color = "#006d2c", # dark green
+  hist_color = "#6baed6", # medium blue
+  smoothing_color = "#54278f", # dark purple
+  density_color = "#08519c", # darker blue
+  contour_color = "#9e9ac8") # lighter purple
+```
+
+Correlation test:
+```{r}
+cor.test(rims$MinTh, rims$Diameter,  method = "pearson", use = "complete.obs")
+```
+
+"These two variables are quite a bit more significantly correlated with a coefficient of 0.7 and p-value of 4207^{-13}." 
+
+"To us this might suggest that **how big an opening diameter might be is related significantly to how thickly the body of the vessel is built**. If you want a bigger opening, your vessel must be thicker." 
+-> Idiotic interpretation. Correct: "The larger the vessel is the thicker the walls have to be"
+
+Let's have a look at the 'perfect scatterplot' for this one:
+```{r}
+WVPlots::ScatterHist(rims, "MinTh", "Diameter",
+  title= "Relationship of Minimum Vessel Thickness to Opening Diameter",
+  smoothmethod = "lm",
+  estimate_sig = TRUE,
+  contour = TRUE,
+  point_color = "#006d2c", # dark green
+  hist_color = "#6baed6", # medium blue
+  smoothing_color = "#54278f", # dark purple
+  density_color = "#08519c", # darker blue
+  contour_color = "#9e9ac8") # lighter purple
+```
+"We have two peaks again, related to the peaks in the density of the Diameter values."
+
+At the end of this segment, we remove the datasets we have created but no longer need:
+```{r}
+rm (diamXmax, diamXmax2, diamXmaxfull, diamXmin, diamXmin2, diamXminfull, minXmax, minXmax2, minXmaxfull)
+```
+
