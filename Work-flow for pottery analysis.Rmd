@@ -1,5 +1,5 @@
 ---
-title: "Guideline for pottery analysis"
+title: "Guideline for pottery analysis_example code"
 author: "Soren Pedersen"
 date: "11/1/2021"
 output: html_document
@@ -438,4 +438,398 @@ At the end of this segment, we remove the datasets we have created but no longer
 ```{r}
 rm (diamXmax, diamXmax2, diamXmaxfull, diamXmin, diamXmin2, diamXminfull, minXmax, minXmax2, minXmaxfull)
 ```
+
+## Categorical variables
+
+### Rim Types
+To look at a factor that has many levels, like rim types, for a first overview, we can use a treemap: 
+```{r}
+rimtypes <- count(rims,RimType) # get the data into the right shape with counts of the occurrences.
+ggplot(rimtypes, 
+       aes(fill = RimType, 
+           area = n, 
+           label = RimType)) +
+  geom_treemap() + 
+  geom_treemap_text(colour = "white", 
+                    place = "centre") +
+  labs(title = "KEN2020 Sherds by Rim Type",
+       subtitle = "n=411") +
+  theme(legend.position = "none")
+```
+
+This tells us that ES30 is the most common rim type, followed by S2 and then some T types. We'll take a closer look with desc
+```{r}
+Desc(rims$RimType)
+```
+
+**So ES30 weighs in at 15.3%, S2 at 9.2%. The first 7 rim types, which apart from ES30 all belong to T or S shapes, together account for almost half of the rims (46.3%).**
+However, this big picture is still a little confusing. We'll break the rims down into their larger categories, creating a new variable.
+```{r}
+library(stringi)
+library(stringdist)
+creating.gentypes <- function(types){
+   #the amatch function only works on character
+   types <- as.character(types)
+   c <- c("S", "ES", "Emg", "Et", "Ef", "Ep", "Esg", "T", "Fl", "F","C", "D", "B", "L", "BT", "I", "Y")
+   #amatch will help to correlate the general rimtypes to the more complex ones
+    i <- amatch(types, c, maxDist = 8)
+    #the code is applied to the data
+    rims$RimType.general <- c[i]
+    #turned back into a factor 
+    types <- as.factor(types)
+    rims$RimType.general <- as.factor(rims$RimType.general)
+}
+rims$RimType.general <- creating.gentypes(rims$RimType)
+
+## we will also save this to the dataset
+save(rims, body, file = "KEN2020clean.RData")
+```
+Then rerun the treemap to see the improvement
+```{r}
+rimcategories <- count(rims,RimType.general) # get the data into the right shape with counts of the occurrences.
+ggplot(rimcategories, 
+       aes(fill = RimType.general, 
+           area = n, 
+           label = RimType.general)) +
+  geom_treemap() + 
+  geom_treemap_text(colour = "white", 
+                    place = "centre") +
+  labs(title = "KEN2020 Sherds by Rim Type",
+       subtitle = "n=411") +
+  theme(legend.position = "none")
+```
+
+This shows a little more clearly how **everted simple rims and T-rims are the most common**. They seem to make more than half together. Let's check the numbers:
+```{r}
+Desc(rims$RimType.general)
+```
+
+**This shows us that ES has 38.1%, T has 29%, S has 19.1%. ES and T together account for 67.1% of the rims. ES, T and S account for 86.1%. This is a clear tendency towards these three general rim shapes.** But let's not forget that some of the shapes in these categories are amongst the least frequent in the more detailed treemap. Sometimes simplifying data can obscure important findings, too.
+
+#### Rim Types by site
+Since we have this dominance of a few rim types, maybe we can find out how they are distributed across the sites that we have surveyed and excavated. Are there differences between the sites?
+```{r}
+library(scales)
+ggplot(rims, 
+       aes(x = factor(Site,
+                      levels = c("KEN1", "KEN3","KEN4", "KEN5", 
+                                 "KEN6", "KEN7", "KEN8", "KEN9", "KEN10", 
+                                 "KEN11", "KEN12")),
+           fill = factor(RimType.general, 
+                         levels = c("ES", "T", "S", "Fl", "B", "Y", "D", "L"),
+                         labels = c("simple everted", "thickened", "simple", "flattened", "base",
+                                    "Y-shaped", "drainpipe", "lid")))) + 
+  geom_bar(position = "fill") +
+  scale_y_continuous(breaks = seq(0, 1, .2), 
+                     label = percent) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(y = "Percent", 
+       fill = "Rim Category",
+       x = "Site",
+       title = "Rim Categories by Site") +
+  theme_minimal()
+```
+
+Here we see how almost all assemblages are dominated by two rim categories, ES and T. There seems to be quite a difference in the diversity of the assemblages. Only some of them have Y-shaped rims, interestingly it is the three we excavated. KEN4 and KEN9 are the least diverse.
+
+We will have to delve into this in more detail.
+```{r}
+library(ggpubr)
+rimtypeXsite <- xtabs(~ rims$Site + rims$RimType)
+attr(rimtypeXsite, "class") <- NULL 
+attr(rimtypeXsite, "call") <- NULL 
+ggballoonplot(rimtypeXsite, fill = "value")+
+  scale_fill_viridis_c(option = "C")
+```
+
+too much for a balloon plot.
+we can try to visualise this in a correspondence analysis, but it is likely to get messy
+```{r}
+library(FactoMineR)
+library(factoextra)
+res.ca <- CA(rimtypeXsite, graph = FALSE)
+fviz_ca_biplot(res.ca, repel = TRUE)
+```
+
+This is not too bad. KEN5 appears to separate out, while we get KEN1 and KEN10 with similar results. We'll definitely need to stay on this. The next step would be to make a matrix of tables and graphs comparing those sites that are close together on the CA graph. I.e. KEN9 and 7, KEN 1 and 10, KEN 4 and 12, 3 and 11, 8 and 6, and 5.
+
+```{r}
+#filter for sites and create new dataset
+KEN1_10 <- filter(rims, Site %in% c("KEN1", "KEN10")) %>% count(Site, RimType, sort = TRUE, name = "n")
+
+#then plot
+ggplot(KEN1_10, 
+       aes(fill = RimType, 
+           area = n, 
+           label = RimType)) +
+  geom_treemap() + 
+  geom_treemap_text(colour = "white", 
+                    place = "centre") +
+  labs(title = "Rim Types") +
+  theme(legend.position = "none")+
+  facet_wrap( ~ Site)
+```
+
+We'll keep this going for all sites:
+```{r}
+rimtype_site <- rims %>%  count(Site, RimType, sort = TRUE, name = "n")
+
+#then plot
+ggplot(transform(rimtype_site,
+      Site=factor(Site,levels=c("KEN5","KEN8","KEN6", "KEN9", "KEN7", "KEN4", "KEN12", "KEN3", "KEN11", "KEN1", "KEN10"))),#reordered to reflect groups seen in CA 
+       aes(fill = RimType, 
+           area = n, 
+           label = RimType)) +
+  geom_treemap() + 
+  geom_treemap_text(colour = "white", 
+                    place = "centre") +
+  labs(title = "Rim Types") +
+  theme(legend.position = "none")+
+  facet_wrap( ~ Site)
+```
+
+We'll look at the excavated samples in more detail:
+```{r}
+KEN8_6 <- filter(rims, Site %in% c("KEN8", "KEN6")) %>% count(Site, RimType, sort = TRUE, name = "n")
+
+#then plot
+ggplot(KEN8_6, 
+       aes(fill = RimType, 
+           area = n, 
+           label = RimType)) +
+  geom_treemap() + 
+  geom_treemap_text(colour = "white", 
+                    place = "centre") +
+  labs(title = "Rim Types") +
+  theme(legend.position = "none")+
+  facet_wrap( ~ Site)
+```
+
+We'll now try to see whether there is a temporal effect here, via seriation (see the seriation.R file):
+```{r}
+library(tabula)
+library(magrittr)
+library(tidyverse)
+## First, we will look at the sites as sites:
+rimtypeXsite <- table(rims$RimType,rims$Site)
+rimtypeXsite <- unclass(rimtypeXsite)
+rimtypeXsite <- t(rimtypeXsite)
+
+## Coerce dataset to an abundance matrix
+#rim_counts <- arkhe::as_count(rimtypeXsite)
+## Plot original data matrix
+#plot_ford(rim_counts, EPPM = FALSE) +
+ # ggplot2::labs(title = "Original dataset") +
+  #khroma::scale_fill_bright()
+## Get seriation order for columns on EPPM using the reciprocal averaging method
+## Expected column order: N, A, C, K, P, L, B, E, I, M, D, G, O, J, F, H
+#rim_indices <- seriate_reciprocal(rim_counts, EPPM = TRUE, margin = 2)
+## Permute columns
+#rim_seriation <- permute(rim_counts, rim_indices)
+## Plot new matrix
+#plot_ford(rim_seriation, EPPM = TRUE) +
+ # ggplot2::labs(title = "Reordered dataset") +
+  #khroma::scale_fill_bright()
+```
+
+This keeps hanging up with me at the moment. I'll come back to it later...
+
+## Vessel shape
+If we want to approach the shape of the vessel, we have three variables to play with: Diameter (numeric), RimAngle (categorical), general Rim Type (categorical). So in order to get an idea of the shape of the vessels, we need to put these three variables together.
+
+First, we create a reduced dataset consisting only of our three dimensions, and remove all rows in which there is an NA. Then we also drop the D rims, because drainpipes are not vessels
+```{r}
+library(tidyr)
+shape <- select(rims, Diameter, RimAngle, RimType.general) %>% drop_na() %>% filter(RimType.general != "D")
+```
+
+### Bivariate Analyses
+First, we will look at each pair of these values, since there are only three. This will give us a good first impression.
+#### RimType and RimAngle
+```{r}
+ggplot(shape, 
+       aes(x = RimAngle, 
+           fill = RimType.general)) + 
+  geom_bar(position = "fill") +
+  labs(y = "Proportion")
+
+ggplot(shape, 
+       aes(x = RimType.general, 
+           fill = RimAngle)) + 
+  geom_bar(position = "fill") +
+  labs(y = "Proportion")
+
+```
+
+One very clear result here is that ES rims, who are the most frequent, do not occur on vertical shapes. 
+
+#### Rim Type and Diameter
+
+```{r}
+library(ggridges)
+
+ggplot(shape, 
+       aes(x = Diameter, 
+           y = RimType.general, 
+           fill = RimType.general)) +
+  geom_density_ridges() + 
+  theme_ridges() +
+  labs("Diameter by Rim category") +
+  theme(legend.position = "none")
+```
+
+It seems as though there is a relationship between the rim types and the diameter of the opening. So types thus favour a smaller opening, T types a larger one. Fl has two peaks and ES becomes less prevalent as the diameter gets larger. 
+
+#### Rim Angle and Diameter
+
+```{r}
+library(ggridges)
+
+ggplot(shape, 
+       aes(x = Diameter, 
+           y = RimAngle, 
+           fill = RimAngle)) +
+  geom_density_ridges() + 
+  theme_ridges() +
+  labs("Diameter by Rim Angle") +
+  theme(legend.position = "none")
+```
+
+Here the picture is less clear.
+
+Let's try and express the relationships between Diameter and Type and Angle in a statistical model, in this case linear regression.
+```{r}
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+
+shape_lm <- lm(Diameter ~ RimType.general + RimAngle, 
+                data = shape)
+tab_model(shape_lm)
+
+library(visreg)
+visreg(shape_lm, "RimType.general", gg = TRUE) 
+visreg(shape_lm, "RimAngle", gg = TRUE)
+```
+
+### Factor Analysis of Mixed Data
+A good way of looking at all three variables together is to perform a Factor Analysis of Mixed Data (FAMD).
+For resources, see: http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/115-famd-factor-analysis-of-mixed-data-in-r-essentials/
+
+```{r}
+library("FactoMineR")
+library("factoextra")
+
+shape.famd <- FAMD(shape, graph = FALSE)
+```
+The result is a list of values, which we can successively explore.
+#### Eigenvalues
+```{r}
+eig.val <- get_eigenvalue(shape.famd)
+head(eig.val)
+fviz_screeplot(shape.famd)
+```
+
+The result shows that there is no high explanatory value for any one dimension. 
+
+#### Variables
+We will look at the variables now, and their correlation to the dimensions. We also look at their contribution of the variables to dimensions 1 and 2
+```{r}
+var <- get_famd_var(shape.famd)
+
+## Coordinates of variables
+head(var$coord)
+## Cos2: quality of representation on the factor map
+head(var$cos2)
+## Contributions to the  dimensions
+head(var$contrib)
+
+## Plot of variables
+fviz_famd_var(shape.famd, repel = TRUE)
+## Contribution to the first dimension
+fviz_contrib(shape.famd, "var", axes = 1)
+## Contribution to the second dimension
+fviz_contrib(shape.famd, "var", axes = 2)
+
+
+```
+
+We can see that RimType.general is the main contributor to both dimensions, whereas Diameter has more of an influence on Dim1 and none at all on Dim2. This reflects our previous observation that RimAngle and Diameter are not correlated with any noticeable strength.
+
+#### Qualitative variables
+Let's look at the two qualitative variables on their own, and see how their values behave.
+```{r}
+quali.var <- get_famd_var(shape.famd, "quali.var")
+quali.var 
+
+fviz_famd_var(shape.famd, "quali.var", col.var = "contrib", 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+             )
+```
+
+#### Individuals
+Get results for the individual observations and thus approach groups.
+
+```{r}
+ind <- get_famd_ind(shape.famd)
+ind
+```
+
+Now we will plot them, and color the groups according to the Rim Type
+```{r}
+fviz_mfa_ind(shape.famd, 
+             habillage = "RimType.general", # color by groups 
+             #palette = c("red", "green", "#FC4E07"),
+             #addEllipses = TRUE, 
+             repel = TRUE # Avoid text overlapping
+             ) 
+```
+
+It is clearly visible now that, with a few exceptions, the general rim types are strongly related to Diameter and Angle of the rim. This is an important result. 
+It means that, for this dataset at least, we can use the rim type as indicative of shape (on a statistical level). Interpretively, it means that vessels of different sizes also have different rims.
+
+## Multiple Factor Analysis (MFA)
+This is a way of looking at a large number of variables together, with the possibility of mixing categorical and numeric variables. This is not easy to do for decor, but we can leave it out and try a dataset without it.
+
+```{r}
+library(tidyr)
+df_mfa <- select(rims, Site, Unit, Context, MaxTh, MinTh, Diameter, RimAngle, RimType, Burnish, Slip) 
+#set Burnish and Slip to True or False
+levels(df_mfa$Burnish) <- c(levels(df_mfa$Burnish), FALSE, TRUE)
+df_mfa$Burnish[!is.na(df_mfa$Burnish)] = "TRUE"
+df_mfa$Burnish <- replace_na(df_mfa$Burnish, FALSE)
+as.logical(df_mfa$Burnish)
+
+levels(df_mfa$Slip) <- c(levels(df_mfa$Slip), FALSE, TRUE)
+df_mfa$Slip[!is.na(df_mfa$Slip)] = "TRUE"
+df_mfa$Slip <- replace_na(df_mfa$Slip, FALSE)
+as.logical(df_mfa$Slip)
+```
+
+Now we prepare for the factor analysis. The variables will be grouped here, according to what they represent.
+Thus we group the first three variables (site, Unit, Context) into one group called location.
+
+Next, we will group maximum and minimum thickness with diameter. We have already seen that they are correlated. We will specify that this group should be standardised (type s). We will leave the rim angle on its own, the rim type also, as well as burnish and slip.
+
+NB: In future, I will see if there is a way to group variables of different kinds. Really, I would like to put max Thickness in with the Rim Type, and Rim Angle in with MIn THickness and Diameter, since this appears to make the most sense conceptually.
+
+```{r}
+library(FactoMineR)
+res.mfa <- MFA(df_mfa, 
+               group = c(3, 3,  1, 1, 1, 1), 
+               type = c("n", "s", "n", "n", "n", "n"),
+               name.group = c("location","dimensions", "shape",
+                              "rim type", "burnish","slip"),
+               num.group.sup = c(1),
+               graph = FALSE)
+print(res.mfa)
+```
+Check the eigenvalues to see whether this explains any variance:
+```{r}
+library("factoextra")
+eig.val <- get_eigenvalue(res.mfa)
+head(eig.val)
+fviz_screeplot(res.mfa)
+```
+The answer to this is no. All the dimensions together explain only 10% of the variance in the dataset. This can be abandoned.
 

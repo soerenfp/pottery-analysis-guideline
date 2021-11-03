@@ -1,0 +1,117 @@
+---
+title: "Cluster analysis_example code"
+author: "Soren Pedersen"
+date: "11/3/2021"
+output: html_document
+---
+
+-------------------------
+####Cluster analysis####
+-------------------------
+
+# Multivariate statistics: Creating groups
+In order to progress to a network model, we need to class our data into shape groups. According to Gallay and de Ceuninck, vessel functions are determined along two axes: volume (height and max diameter) and opening diameter. In archaeological data, we do not have these measurements to hand. Additionally, we have observed that the rim type is also an important factor in determining function. So we are going to use three variables to approximate the volume (Thicknesses and Rim Angle), and use the opening diameter and the rim type to arrive at groups.
+
+Since we have a mix of numeric and categorical variables here, there are essentially two ways of progressing:
+
+- Factor Analysis of Mixed Data (FAMD) using the `FactoMineR` and `factoextra` packages. This performs PCA on numerical and CA on categorical data and reduces their dimensions. These can then be passed to a Cluster Analysis.
+- Progress straight to Cluster Analysis using Gower distance using `cluster::daisy`, which can cope with either forms of data.
+
+Here, we are going to stick to the second method. The two do very similar things - the second is a little less informative, but faster.
+
+## Clustering mixed data
+
+This is probably the most straightforward way, see it well explained here: https://towardsdatascience.com/clustering-on-mixed-type-data-8bbd0a2569c3
+We are going to be using gower distance to do this, and find our cluster number using sihouette.
+
+More resources here: https://towardsdatascience.com/hierarchical-clustering-on-categorical-data-in-r-a27e578f2995 (use for trying hierarchical clustering)
+
+```{r}
+library(cluster)
+#get data into shape
+rims <- rims %>% rowid_to_column("ID")
+shapes <- rims %>% 
+  select(ID, MaxTh, MinTh, RimAngle, Diameter, RimType.general) %>% 
+  drop_na()
+
+#' Compute Gower distance
+gower_dist <- daisy(shapes[, 2:6], metric = "gower")
+gower_mat <- as.matrix(gower_dist)
+#' Print most similar clients
+shapes[which(gower_mat == min(gower_mat[gower_mat != min(gower_mat)]), arr.ind = TRUE)[1, ], ]
+
+#' Print most dissimilar clients
+shapes[which(gower_mat == max(gower_mat[gower_mat != max(gower_mat)]), arr.ind = TRUE)[1, ], ]
+```
+
+Sihouette distance will be set to maximum 12, since that is really the max number of types that we want. If we think about present-day potters examples, they tend to make around 4 (this needs to be literature supported, I am just stating this from memory now)
+```{r}
+sil_width <- c(NA)
+for(i in 2:12){  
+  pam_fit <- pam(gower_dist, diss = TRUE, k = i)  
+  sil_width[i] <- pam_fit$silinfo$avg.width  
+}
+plot(1:12, sil_width,
+     xlab = "Number of clusters",
+     ylab = "Silhouette Width")
+lines(1:12, sil_width)
+```
+
+And behold, our optimal number of clusters comes in at 5. Note though, that this is considerably fewer than Gallay and de Ceuninck's functional types.
+
+Now, let us look at each of the 5 clusters in detail:
+```{r}
+k <- 6
+pam_fit <- pam(gower_dist, diss = TRUE, k)
+pam_results <- shapes %>%
+  mutate(cluster = pam_fit$clustering) %>%
+  group_by(cluster) %>%
+  do(the_summary = summary(.))
+pam_results$the_summary
+```
+
+We'll need to analyse this closely and definitely run it again once we have our rim types standardised. What seems pretty clear is that Cluster 5 are lids.
+
+What we will need to do here is discuss these shape types to see what exactly they correspond to, whether we can make some functional interpretations etc. It would be nice for our archeo-linguistics if we could make these more than just statistical groups and discover a reason behind them. 
+We should thus probably run some visualisations on each cluster.
+
+I'll just stick the visualisation code using `Rtsne` here to make sure we don't forget it:
+```{r}
+tsne_obj <- Rtsne::Rtsne(gower_dist, is_distance = TRUE, perplexity = 5)
+tsne_data <- tsne_obj$Y %>%
+  data.frame() %>%
+  setNames(c("X", "Y")) %>%
+  mutate(cluster = factor(pam_fit$clustering))
+ggplot(aes(x = X, y = Y), data = tsne_data) +
+  geom_point(aes(color = cluster))
+```
+
+I think that this is the solution. The Gower distance makes a lot of sense to me, so that we could even use this on more dimensions.
+
+Generally, the workflow to create groups should either be this or a mixed factor analysis which is then passed to clustering. But the Gower distance is a little faster, even if it less transparent because it does not show us the main dimensions.
+
+At the moment, the main clustering occurs around the RimAngle. We will have to see what this is like once we have our RimType groups as well.
+```{r}
+shapes %>%
+  mutate(cluster = pam_fit$clustering) %>%
+  group_by(cluster) %>%
+  summarise(n = n()) %>% 
+  ggplot(aes(x = cluster, y= n))+
+  geom_bar(stat = "identity")+
+  labs(title = "Shape clusters of KEN 2020 rim sherds",
+       x = "Cluster",
+       y = "n", 
+       caption = "n = 76")+
+  theme_minimal()
+```
+
+```{r}
+#try to get shape clusters back into original dataset
+shapes <- shapes %>%
+  mutate(cluster = pam_fit$clustering)
+
+clusters <- shapes %>% select(ID, cluster)
+
+rims <- full_join(rims, clusters, by = "ID")
+
+```
